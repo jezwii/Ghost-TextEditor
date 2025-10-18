@@ -8,7 +8,8 @@ const PostsList = () => {
 
   const createNew = () => {
     const id = Date.now();
-    addPost({ id, title: "Untitled Post", content: "", featuredImage: "" });
+    // Create with empty title so Editor can show a placeholder instead of prefilled text
+    addPost({ id, title: "", content: "", featuredImage: "" });
     navigate(`/editor/${id}`);
   };
 
@@ -18,7 +19,7 @@ const PostsList = () => {
         <h1 className="text-2xl font-bold">Your Posts</h1>
         <button
           onClick={createNew}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
+          className="bg-black text-white px-4 py-2 rounded"
         >
           New Post
         </button>

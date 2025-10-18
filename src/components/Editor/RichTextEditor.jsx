@@ -1,39 +1,38 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
+import ImageEmbed from "./Extensions/ImageEmbed";
+import Youtube from "./Extensions/Youtube";
+import Bookmark from "./Extensions/Bookmark";
 import Toolbar from "./Toolbar";
+import { usePostStore } from "../../store/postStore";
 import { debounceSave } from "../../utils/debounceSave";
-import usePostStore from "../../store/postStore";
 
-const RichTextEditor = ({ postId }) => {
-  const { updatePost, posts } = usePostStore();
-  const post = posts.find((p) => p.id === postId);
+const RichTextEditor = () => {
+  const { content, setContent } = usePostStore();
 
   const editor = useEditor({
     extensions: [
       StarterKit,
-      Link.configure({ openOnClick: true }),
-      Placeholder.configure({ placeholder: "Start writing your post..." }),
+      Placeholder.configure({ placeholder: "Type '/' for commands..." }),
+      ImageEmbed,
+      Youtube,
+      Bookmark,
     ],
-    content: post?.content || "",
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      debounceSave(() => updatePost(postId, { content: html }));
-    },
+    content,
+    onUpdate: debounceSave(({ editor }) => {
+      setContent(editor.getHTML());
+    }, 500),
   });
 
-  useEffect(() => {
-    if (post?.content) editor?.commands.setContent(post.content);
-  }, [post?.content]);
-
   return (
-    <div className="max-w-3xl mx-auto my-8">
-      <Toolbar editor={editor} />
-      <div className="border rounded-md p-4 min-h-[400px] prose prose-lg max-w-none">
-        <EditorContent editor={editor} />
-      </div>
+    <div className="border rounded-2xl p-4 bg-white">
+      {editor && <Toolbar editor={editor} />}
+      <EditorContent
+        editor={editor}
+        className="min-h-[300px] prose prose-gray max-w-none focus:outline-none"
+      />
     </div>
   );
 };

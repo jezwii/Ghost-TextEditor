@@ -1,11 +1,18 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback } from "react";
+import { useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { EditorContent, useEditor, BubbleMenu } from "@tiptap/react";
+import {
+  EditorContent,
+  useEditor,
+  BubbleMenu,
+  FloatingMenu,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import { FloatingMenu } from "@tiptap/extension-floating-menu";
+import Underline from "@tiptap/extension-underline";
+// Removed: import { FloatingMenu } from "@tiptap/extension-floating-menu";
 import usePostStore from "../store/postStore";
 import {
   Plus,
@@ -24,9 +31,44 @@ const EditorPage = () => {
 
   const [post, setPost] = useState(null);
   const [uploading, setUploading] = useState(false);
+  // Robust hovering '+' button beside block
   const [hoveredBlock, setHoveredBlock] = useState(null);
-  const [showMenu, setShowMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const [plusPos, setPlusPos] = useState({ top: 0, left: 0 });
+  const plusTimeout = useRef(); // This line remains unchanged
+  useLayoutEffect(() => {
+    const editorEl = document.querySelector(".ProseMirror");
+    if (!editorEl) return;
+    let lastBlock = null;
+    const handleMouseMove = (e) => {
+      const block = e.target.closest(
+        "p, pre, blockquote, img, h1, h2, h3, h4, h5, h6, ul, ol"
+      );
+      if (block && editorEl.contains(block)) {
+        if (lastBlock !== block) {
+          lastBlock = block;
+          setHoveredBlock(block);
+          const rect = block.getBoundingClientRect();
+          setPlusPos({
+            top: Math.max(rect.top + window.scrollY + rect.height / 2 - 16, 0),
+            left: Math.max(rect.left - 40, 0),
+          });
+        }
+        if (plusTimeout.current) clearTimeout(plusTimeout.current);
+      } else {
+        if (plusTimeout.current) clearTimeout(plusTimeout.current);
+        plusTimeout.current = setTimeout(() => {
+          setHoveredBlock(null);
+        }, 100);
+      }
+    };
+    editorEl.addEventListener("mousemove", handleMouseMove);
+    editorEl.addEventListener("mouseleave", () => setHoveredBlock(null));
+    return () => {
+      editorEl.removeEventListener("mousemove", handleMouseMove);
+      editorEl.removeEventListener("mouseleave", () => setHoveredBlock(null));
+      if (plusTimeout.current) clearTimeout(plusTimeout.current);
+    };
+  }, []);
   const [saveTimer, setSaveTimer] = useState(null);
   const [saveStatus, setSaveStatus] = useState("All changes saved");
 
@@ -59,15 +101,20 @@ const EditorPage = () => {
   const editor = useEditor({
     extensions: [
       StarterKit,
+      Underline,
       Image,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: "text-blue-600 underline" },
       }),
-      Placeholder.configure({ placeholder: "Type '/' for commands..." }),
-      FloatingMenu.configure({
-        element: document.createElement("div"), // invisible, we'll handle our own
+      Placeholder.configure({
+        placeholder: ({ node }) => {
+          if (node.type.name === "heading") return "Heading";
+          return "Write your content...";
+        },
+        emptyEditorClass: "is-editor-empty",
       }),
+      // Remove FloatingMenu extension config, handled by React component
     ],
     content: "",
     onUpdate: ({ editor }) => handleEditorUpdate(editor),
@@ -80,17 +127,7 @@ const EditorPage = () => {
     }
   }, [editor, post]);
 
-  // Hover tracking for floating “+” icon
-  useEffect(() => {
-    const editorEl = document.querySelector(".ProseMirror");
-    if (!editorEl) return;
-    const handleHover = (e) => {
-      const block = e.target.closest("p, pre, blockquote, img");
-      setHoveredBlock(block);
-    };
-    editorEl.addEventListener("mousemove", handleHover);
-    return () => editorEl.removeEventListener("mousemove", handleHover);
-  }, []);
+  // Removed custom hover tracking for floating menu
 
   // Image upload
   const handleImageUpload = async (e) => {
@@ -155,7 +192,7 @@ const EditorPage = () => {
       default:
         break;
     }
-    setShowMenu(false);
+    // setShowMenu(false); // removed, no longer needed
   };
 
   if (!post) return <p className="text-center mt-20">Loading...</p>;
@@ -208,8 +245,10 @@ const EditorPage = () => {
       <input
         value={post.title}
         onChange={handleTitleChange}
-        className="text-5xl font-bold w-full mb-8 focus:outline-none placeholder-gray-300"
+        className="text-5xl font-bold w-full mb-8 border-none outline-none placeholder-gray-400 bg-transparent"
         placeholder="Post title..."
+        spellCheck={false}
+        autoComplete="off"
       />
 
       {/* Editor */}
@@ -232,6 +271,12 @@ const EditorPage = () => {
               I
             </button>
             <button
+              onClick={() => editor.chain().focus().toggleUnderline().run()}
+              className="underline"
+            >
+              U
+            </button>
+            <button
               onClick={() => editor.chain().focus().toggleStrike().run()}
               className="line-through"
             >
@@ -244,88 +289,150 @@ const EditorPage = () => {
             >
               H2
             </button>
+            <button
+              onClick={() =>
+                editor.chain().focus().toggleHeading({ level: 3 }).run()
+              }
+            >
+              H3
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+            >
+              UL
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            >
+              OL
+            </button>
+            <button
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            >
+              ❝
+            </button>
+            <button
+              onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            >
+              ―
+            </button>
+            <button
+              onClick={() => {
+                const url = window.prompt("Enter URL") || "";
+                if (!url) {
+                  editor.chain().focus().unsetLink().run();
+                  return;
+                }
+                editor.chain().focus().setLink({ href: url }).run();
+              }}
+            >
+              🔗
+            </button>
           </BubbleMenu>
         )}
 
-        {/* Floating “+” beside blocks */}
+        {/* Hovering "+" button beside block */}
         {hoveredBlock && (
           <button
-            className="absolute p-1 rounded-full bg-gray-100 hover:bg-gray-200 shadow-sm"
+            className="fixed z-50 p-1 rounded-full bg-gray-100 hover:bg-gray-200 shadow-sm"
             style={{
-              top:
-                hoveredBlock.getBoundingClientRect().top + window.scrollY + 4,
-              left: hoveredBlock.getBoundingClientRect().left - 40,
+              top: plusPos.top,
+              left: plusPos.left,
+              transition: "top 0.1s, left 0.1s",
             }}
             onClick={() => {
-              const rect = hoveredBlock.getBoundingClientRect();
-              setMenuPos({ x: rect.left + 10, y: rect.bottom });
-              setShowMenu(true);
+              if (!editor) return;
+              const pos = editor.view.posAtDOM(hoveredBlock, 0);
+              editor.chain().focus().setTextSelection(pos).run();
             }}
+            tabIndex={-1}
+            aria-label="Add block"
           >
             <Plus size={16} />
           </button>
         )}
 
-        {/* EditorContent */}
-        <EditorContent
-          editor={editor}
-          className="prose prose-lg max-w-none focus:outline-none min-h-[500px] text-lg leading-relaxed"
-        />
-
-        {/* Floating Menu */}
-        {showMenu && (
-          <div
-            className="fixed bg-white border border-gray-200 rounded-lg shadow-xl z-50 w-64"
-            style={{ top: menuPos.y, left: menuPos.x }}
+        {/* Floating Menu using TipTap's FloatingMenu component */}
+        {editor && (
+          <FloatingMenu
+            editor={editor}
+            tippyOptions={{
+              placement: "right-start", // makes it appear beside the text
+              offset: [0, 10], // slight gap between cursor and menu
+              duration: 100,
+            }}
+            shouldShow={({ editor }) => {
+              const { $from } = editor.state.selection;
+              return (
+                $from.parent.type.name === "paragraph" &&
+                $from.parent.textContent.length === 0
+              );
+            }}
           >
-            <div className="p-2 space-y-1">
+            <div className="bg-white shadow-lg border border-gray-200 rounded-lg w-48 py-2">
               <button
                 onClick={() => insertBlock("image")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <ImgIcon size={18} className="text-gray-500" /> Photo
+                <ImgIcon size={16} /> Photo
               </button>
               <button
                 onClick={() => insertBlock("html")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <Code size={18} className="text-gray-500" /> Code block
+                <Code size={16} /> Code block
               </button>
               <button
                 onClick={() => insertBlock("divider")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <Minus size={18} className="text-gray-500" /> Divider
+                <Minus size={16} /> Divider
               </button>
               <button
                 onClick={() => insertBlock("bookmark")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <Bookmark size={18} className="text-gray-500" /> Bookmark
+                <Bookmark size={16} /> Bookmark
               </button>
               <button
                 onClick={() => insertBlock("youtube")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <Youtube size={18} className="text-gray-500" /> YouTube
+                <Youtube size={16} /> YouTube
               </button>
               <button
                 onClick={() => insertBlock("twitter")}
-                className="flex items-center gap-3 w-full px-3 py-2 hover:bg-gray-100 rounded-md text-left text-sm"
+                className="flex items-center gap-3 w-full px-4 py-2 hover:bg-gray-100 text-sm text-gray-700"
               >
-                <Twitter size={18} className="text-gray-500" /> Tweet
+                <Twitter size={16} /> Tweet
               </button>
             </div>
-          </div>
+          </FloatingMenu>
         )}
 
-        {/* Overlay to close menu */}
-        {showMenu && (
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setShowMenu(false)}
-          />
-        )}
+        {/* EditorContent */}
+        <EditorContent
+          editor={editor}
+          className="prose prose-lg max-w-none min-h-[500px] text-lg leading-relaxed is-editor-content bg-white border border-gray-200 rounded-md px-4 py-4 transition-shadow focus:shadow-none"
+        />
+        <style>{`
+          .is-editor-empty:before {
+            content: attr(data-placeholder);
+            color: #a0aec0;
+            pointer-events: none;
+            position: absolute;
+            left: 0.75rem;
+            top: 0.75rem;
+            font-size: 1.125rem;
+          }
+          .is-editor-content:focus {
+            outline: none !important;
+            box-shadow: none !important;
+            border-color: #2563eb;
+          }
+        `}</style>
+
+        {/* Removed custom floating menu and overlay */}
       </div>
     </div>
   );
